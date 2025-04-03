@@ -34,7 +34,8 @@ export class TransportManager {
       );
     }
 
-    const transport = new SSETransport(url, headers, this.options);
+    const headersRecord = Object.fromEntries(new Headers(headers).entries());
+    const transport = new SSETransport(url, headersRecord, this.options);
     
     try {
       await transport.start();

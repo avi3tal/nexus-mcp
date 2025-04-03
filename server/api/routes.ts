@@ -76,8 +76,9 @@ export function setupRoutes(app: express.Application): void {
         });
 
         // Handle transport errors
-        transport.onerror = (error) => {
-          console.error(`Transport error for server ${serverConfig.name}:`, error);
+        transport.onerror = (error: Error) => {
+          console.error('Transport error:', error);
+          res.status(500).json({ error: error.message });
         };
 
         // Handle transport close
@@ -208,8 +209,10 @@ export function setupRoutes(app: express.Application): void {
     } catch (error) {
       if (error instanceof CapabilityError) {
         res.status(404).json({ error: error.message });
+      } else if (error instanceof Error) {
+        res.status(500).json({ error: error.message });
       } else {
-        res.status(500).json({ error: 'Failed to discover capabilities' });
+        res.status(500).json({ error: 'An unknown error occurred' });
       }
     }
   });

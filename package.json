@@ -1,47 +1,25 @@
 {
-  "name": "nexus-mcp",
-  "version": "1.0.0",
-  "description": "Nexus is an enterprise-grade orchestration platform that unifies distributed Model Context Protocol (MCP) servers into a centralized, secure ecosystem. By introducing Virtual MCP (vMCP) instances, Nexus enables organizations to create lightweight, purpose-specific tool collections while maintaining a single point of access for AI agents and applications.",
+  "name": "@nexus-mcp/platform",
+  "version": "0.1.0",
+  "description": "Nexus MCP Platform",
   "type": "module",
-  "main": "dist/index.js",
-  "scripts": {
-    "dev": "nodemon --watch src --ext ts,js --exec node --import 'data:text/javascript,import { register } from \"node:module\"; import { pathToFileURL } from \"node:url\"; register(\"ts-node/esm\", pathToFileURL(\"./\"));' ./src/index.ts",
-    "build": "tsc",
-    "start": "node ./build/index.js",
-    "test": "jest",
-    "test:sse": "node --import 'data:text/javascript,import { register } from \"node:module\"; import { pathToFileURL } from \"node:url\"; register(\"ts-node/esm\", pathToFileURL(\"./\"));' ./src/test/runTest.ts",
-    "test:add-server": "node --import 'data:text/javascript,import { register } from \"node:module\"; import { pathToFileURL } from \"node:url\"; register(\"ts-node/esm\", pathToFileURL(\"./\"));' ./src/test/addServer.ts",
-    "lint": "eslint . --ext .ts",
-    "format": "prettier --write \"src/**/*.ts\"",
-    "start:mock-server": "node --import 'data:text/javascript,import { register } from \"node:module\"; import { pathToFileURL } from \"node:url\"; register(\"ts-node/esm\", pathToFileURL(\"./\"));' ./src/test/startServer.ts"
+  "bin": {
+    "nexus-mcp": "./bin/cli.js"
   },
-  "keywords": [
-    "mcp",
-    "ai",
-    "orchestration",
-    "typescript"
+  "workspaces": [
+    "server"
   ],
-  "author": "",
-  "license": "MIT",
+  "scripts": {
+    "dev": "cd server && npm run dev",
+    "build": "cd server && npm run build",
+    "start": "node ./bin/cli.js",
+    "test": "cd server && npm test"
+  },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.6.1",
-    "express": "^4.18.2",
-    "swagger-jsdoc": "^6.2.8",
-    "swagger-ui-express": "^5.0.0",
-    "zod": "^3.22.4"
+    "spawn-rx": "^5.1.2"
   },
   "devDependencies": {
-    "@types/express": "^4.17.21",
-    "@types/node": "^20.11.19",
-    "@types/swagger-jsdoc": "^6.0.4",
-    "@types/swagger-ui-express": "^4.1.6",
-    "nodemon": "^3.0.3",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.3.3"
-  },
-  "nodemonConfig": {
-    "watch": ["src"],
-    "ext": ".ts,.js",
-    "ignore": []
+    "typescript": "^5.3.3",
+    "ts-node": "^10.9.2"
   }
 }

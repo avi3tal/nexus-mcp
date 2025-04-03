@@ -10,14 +10,53 @@ import { dirname, join } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+function parseArgs() {
+  const args = process.argv.slice(2);
+  const config: { env?: string; args?: string[] } = {};
+  
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--env' && i + 1 < args.length) {
+      config.env = args[++i];
+    } else if (arg.startsWith('--args=')) {
+      config.args = arg.slice(7).split(' ');
+    }
+  }
+  
+  return config;
+}
+
+function parseEnvVars() {
+  try {
+    const envVars = process.env.MCP_ENV_VARS;
+    return envVars ? JSON.parse(envVars) : {};
+  } catch {
+    return {};
+  }
+}
+
 async function main() {
   const app = express();
   const registry = ServiceRegistry.getInstance();
   
+  // Parse CLI arguments and environment variables
+  const { env, args } = parseArgs();
+  const envVars = parseEnvVars();
+  
   // Load configuration
-  const fileConfig = await ConfigLoader.loadFromFile(join(__dirname, '../config/default.json'));
+  const fileConfig = await ConfigLoader.loadFromFile(join(__dirname, './config/default.json'));
   const envConfig = await ConfigLoader.loadFromEnv();
-  registry.getConfigManager().updateConfig({ ...fileConfig, ...envConfig });
+  
+  // Merge all configurations
+  const finalConfig = {
+    ...fileConfig,
+    ...envConfig,
+    ...envVars,
+    env,
+    args
+  };
+  
+  registry.getConfigManager().updateConfig(finalConfig);
 
   const swaggerOptions = {
     definition: {
@@ -29,7 +68,7 @@ async function main() {
       },
       servers: [
         {
-          url: 'http://localhost:3000',
+          url: `http://localhost:${process.env.PORT || 3000}`,
           description: 'Development server',
         },
       ],
@@ -130,11 +169,105 @@ async function main() {
               }
             },
             required: ['id', 'name', 'server']
+          },
+          Tool: {
+            type: 'object',
+            properties: {
+              name: {
+                type: 'string',
+                description: 'Name of the tool'
+              },
+              description: {
+                type: 'string',
+                description: 'Description of what the tool does'
+              },
+              parameters: {
+                type: 'object',
+                description: 'Tool parameters schema',
+                properties: {
+                  type: {
+                    type: 'string',
+                    enum: ['object']
+                  },
+                  properties: {
+                    type: 'object',
+                    additionalProperties: true
+                  },
+                  required: {
+                    type: 'array',
+                    items: {
+                      type: 'string'
+                    }
+                  }
+                }
+              },
+              inputSchema: {
+                type: 'object',
+                description: 'Tool input schema',
+                properties: {
+                  type: {
+                    type: 'string',
+                    enum: ['object']
+                  },
+                  properties: {
+                    type: 'object',
+                    additionalProperties: true
+                  },
+                  required: {
+                    type: 'array',
+                    items: {
+                      type: 'string'
+                    }
+                  }
+                }
+              }
+            },
+            required: ['name', 'parameters', 'inputSchema']
+          },
+          Prompt: {
+            type: 'object',
+            properties: {
+              name: {
+                type: 'string',
+                description: 'Name of the prompt'
+              },
+              description: {
+                type: 'string',
+                description: 'Description of the prompt'
+              },
+              template: {
+                type: 'string',
+                description: 'Prompt template with placeholders'
+              },
+              arguments: {
+                type: 'array',
+                description: 'List of arguments that can be used in the template',
+                items: {
+                  type: 'object',
+                  properties: {
+                    name: {
+                      type: 'string',
+                      description: 'Name of the argument'
+                    },
+                    description: {
+                      type: 'string',
+                      description: 'Description of the argument'
+                    },
+                    required: {
+                      type: 'boolean',
+                      description: 'Whether the argument is required'
+                    }
+                  },
+                  required: ['name']
+                }
+              }
+            },
+            required: ['name', 'template']
           }
         }
       }
     },
-    apis: ['./src/api/routes.ts'],
+    apis: [join(__dirname, 'api/routes.js')],
   };
 
   const specs = swaggerJsdoc(swaggerOptions);
@@ -144,10 +277,12 @@ async function main() {
 
   setupRoutes(app);
 
-  const port = registry.getConfigManager().getConfig().port;
+  const port = process.env.PORT || 3000;
   app.listen(port, () => {
     console.log(`Server running on http://localhost:${port}`);
     console.log(`Swagger docs available at http://localhost:${port}/api-docs`);
+    if (env) console.log(`Environment: ${env}`);
+    if (args?.length) console.log(`Additional arguments: ${args.join(' ')}`);
   });
 }
 

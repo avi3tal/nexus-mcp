@@ -1,0 +1,33 @@
+{
+  "name": "@nexus-mcp/server",
+  "version": "0.1.0",
+  "description": "Server-side application for Nexus MCP Platform",
+  "type": "module",
+  "bin": {
+    "nexus-mcp-server": "build/index.js"
+  },
+  "files": [
+    "build"
+  ],
+  "scripts": {
+    "build": "tsc && mkdir -p build/config && cp config/default.json build/config/",
+    "start": "node build/index.js",
+    "dev": "tsx watch --clear-screen=false index.ts",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.6.1",
+    "express": "^4.18.2",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.0",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.11.19",
+    "@types/swagger-jsdoc": "^6.0.4",
+    "@types/swagger-ui-express": "^4.1.6",
+    "tsx": "^4.7.1",
+    "typescript": "^5.3.3"
+  }
+} 
