@@ -1,0 +1,65 @@
+{
+  "port": 3000,
+  "mcpServers": [
+    {
+      "name": "example-server",
+      "url": "http://localhost:8080",
+      "transport": "http",
+      "capabilities": {
+        "tools": {
+          "calculate_sum": {
+            "name": "calculate_sum",
+            "description": "Add two numbers together",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "a": { "type": "number" },
+                "b": { "type": "number" }
+              },
+              "required": ["a", "b"]
+            }
+          }
+        },
+        "prompts": {
+          "data_analysis": {
+            "name": "data_analysis",
+            "description": "Analyze data using available tools",
+            "arguments": [
+              {
+                "name": "dataset",
+                "description": "Dataset to analyze",
+                "required": true
+              }
+            ]
+          }
+        },
+        "resources": {
+          "system_info": {
+            "name": "system_info",
+            "description": "System information and status",
+            "type": "text"
+          }
+        }
+      }
+    }
+  ],
+  "vmcps": [
+    {
+      "id": "example-vmcp",
+      "name": "Example vMCP",
+      "server": "example-server",
+      "capabilities": {
+        "tools": ["calculate_sum"],
+        "prompts": ["data_analysis"],
+        "resources": ["system_info"]
+      },
+      "config": {
+        "timeout": 30000
+      }
+    }
+  ],
+  "persistence": {
+    "type": "memory",
+    "config": {}
+  }
+} 
