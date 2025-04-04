@@ -8,7 +8,9 @@ export enum CapabilityErrorCode {
   SERVER_NOT_FOUND = 'SERVER_NOT_FOUND',
   DISCOVERY_FAILED = 'DISCOVERY_FAILED',
   TOOLS_DISCOVERY_FAILED = 'TOOLS_DISCOVERY_FAILED',
-  PROMPTS_DISCOVERY_FAILED = 'PROMPTS_DISCOVERY_FAILED'
+  PROMPTS_DISCOVERY_FAILED = 'PROMPTS_DISCOVERY_FAILED',
+  INVALID_RESOURCE = 'INVALID_RESOURCE',
+  RESOURCE_NOT_FOUND = 'RESOURCE_NOT_FOUND'
 }
 
 export class CapabilityError extends Error {
@@ -99,5 +101,24 @@ export class CapabilityError extends Error {
       `Failed to discover prompts from server ${serverId}`,
       { serverId, error }
     );
+  }
+
+  static invalidResource(error: unknown): CapabilityError {
+    return new CapabilityError(
+      CapabilityErrorCode.INVALID_RESOURCE,
+      `Invalid resource data: ${CapabilityError.formatZodError(error)}`
+    );
+  }
+
+  static resourceNotFound(uri: string): CapabilityError {
+    return new CapabilityError(
+      CapabilityErrorCode.RESOURCE_NOT_FOUND,
+      `Resource not found: ${uri}`
+    );
+  }
+
+  private static formatZodError(error: unknown): string {
+    // Implementation of formatZodError method
+    return '';
   }
 } 

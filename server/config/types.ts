@@ -32,7 +32,11 @@ export const MCPServerConfigSchema = z.object({
       description: z.string().optional(),
       type: z.string()
     }))
-  }).optional()
+  }).optional(),
+  status: z.enum(['online', 'offline', 'error']).optional(),
+  isDisabled: z.boolean().optional(),
+  lastSeen: z.string().optional(),
+  id: z.string().optional()
 });
 
 export const vMCPConfigSchema = z.object({
@@ -44,6 +48,9 @@ export const vMCPConfigSchema = z.object({
     prompts: z.array(z.string()),
     resources: z.array(z.string())
   }),
+  tools: z.array(z.string()).optional(),
+  prompts: z.array(z.string()).optional(),
+  resources: z.array(z.string()).optional(),
   config: z.record(z.unknown()).optional()
 });
 

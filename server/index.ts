@@ -6,6 +6,8 @@ import { setupRoutes } from './api/routes.js';
 import { ConfigLoader } from './config/loader.js';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import cors from 'cors';
+import { SSETransport } from './transport/SSETransport.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -38,6 +40,9 @@ function parseEnvVars() {
 async function main() {
   const app = express();
   const registry = ServiceRegistry.getInstance();
+  const configManager = registry.getConfigManager();
+  const transportManager = registry.getTransportManager();
+  const discoverer = registry.getCapabilityDiscoverer();
   
   // Parse CLI arguments and environment variables
   const { env, args } = parseArgs();
@@ -58,6 +63,98 @@ async function main() {
   
   registry.getConfigManager().updateConfig(finalConfig);
 
+  // Initialize connections for existing servers in config
+  const initialConfig = configManager.getConfig();
+  if (initialConfig.mcpServers && initialConfig.mcpServers.length > 0) {
+    console.log(`Initializing connections for ${initialConfig.mcpServers.length} pre-configured servers...`);
+    const setupPromises = initialConfig.mcpServers.map(async (server) => {
+      if (!server || !server.name || !server.url) {
+        console.warn('Skipping invalid server config entry:', server);
+        return;
+      }
+      
+      if (server.isDisabled) {
+         console.log(`Server ${server.name} is disabled, skipping initial connection.`);
+         return;
+      }
+
+      try {
+        console.log(`Setting up transport for ${server.name} at ${server.url}`);
+        // 1. Create transport instance
+        const transport = new SSETransport(`${server.url}/sse`, {
+          'Accept': 'text/event-stream',
+          'Connection': 'keep-alive'
+        }, {
+          // Add options if TransportManager doesn't handle them
+          maxRetries: 3, 
+          retryDelay: 1000,
+          timeout: 30000
+        });
+        
+        // 2. Add transport to the manager
+        transportManager.addTransport(server.name, transport);
+
+        // 3. Connect using the manager (which calls transport.start)
+        await transportManager.connect(server.name);
+        console.log(`Initial connection successful for ${server.name}. Discovering capabilities...`);
+
+        // Attach handlers *after* connection, if needed for this logic
+        transport.onerror = (error: Error) => { 
+          console.error(`Initial transport error for ${server.name}:`, error);
+          // Update status to error
+          const currentConfig = configManager.getConfig();
+          const updatedServers = currentConfig.mcpServers.map(s => 
+            s.name === server.name ? { ...s, status: 'error' as const, lastSeen: new Date().toISOString() } : s
+          );
+          configManager.updateConfig({ ...currentConfig, mcpServers: updatedServers });
+        };
+        transport.onclose = () => {
+          console.log(`Initial transport closed for ${server.name}`);
+          // Update status to offline
+          const currentConfig = configManager.getConfig();
+          const updatedServers = currentConfig.mcpServers.map(s => 
+            s.name === server.name ? { ...s, status: 'offline' as const, lastSeen: new Date().toISOString() } : s
+          );
+          configManager.updateConfig({ ...currentConfig, mcpServers: updatedServers });
+        };
+
+        await discoverer.discoverCapabilities(server.name);
+        console.log(`Initial capabilities discovered for ${server.name}.`);
+        
+        // Update status in config
+        const currentConfig = configManager.getConfig();
+        const updatedServers = currentConfig.mcpServers.map(s => 
+          s.name === server.name ? { ...s, status: 'online' as const, lastSeen: new Date().toISOString() } : s
+        );
+        configManager.updateConfig({ ...currentConfig, mcpServers: updatedServers });
+
+      } catch (error) {
+        console.error(`Failed initial setup for server ${server.name}:`, error);
+        // Update status to 'error' in config if server exists
+        const currentConfig = configManager.getConfig();
+        const serverExists = currentConfig.mcpServers.some(s => s.name === server.name);
+        if (serverExists) {
+            const updatedServers = currentConfig.mcpServers.map(s => 
+              s.name === server.name ? { ...s, status: 'error' as const, lastSeen: new Date().toISOString() } : s
+            );
+            configManager.updateConfig({ ...currentConfig, mcpServers: updatedServers });
+        }
+      }
+    });
+    await Promise.all(setupPromises);
+    console.log('Initial server setup attempts complete.');
+  }
+
+  // Enable CORS
+  app.use(cors());
+
+  // Parse JSON bodies
+  app.use(express.json());
+
+  // Setup routes before Swagger UI
+  setupRoutes(app);
+
+  // Setup Swagger
   const swaggerOptions = {
     definition: {
       openapi: '3.0.0',
@@ -273,9 +370,11 @@ async function main() {
   const specs = swaggerJsdoc(swaggerOptions);
   app.use('/api-docs', swaggerUiExpress.serve, swaggerUiExpress.setup(specs));
 
-  app.use(express.json());
-
-  setupRoutes(app);
+  // Error handling middleware
+  app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error(err.stack);
+    res.status(500).json({ error: 'Something broke!' });
+  });
 
   const port = process.env.PORT || 3000;
   app.listen(port, () => {

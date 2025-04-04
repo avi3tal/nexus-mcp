@@ -1,29 +1,42 @@
 import { z } from 'zod';
 
-export const ToolSchema = z.object({
+// Base schema for capabilities
+export const BaseCapabilitySchema = z.object({
   name: z.string(),
   description: z.string().optional(),
-  inputSchema: z.record(z.unknown()),
-  parameters: z.record(z.unknown()).optional(),
-  source: z.string()
+  source: z.string(), // Add source server ID
 });
 
-export const PromptSchema = z.object({
-  name: z.string(),
-  description: z.string().optional(),
-  template: z.string().optional(),
+// Tool specific schema, extending base
+export const ToolSchema = BaseCapabilitySchema.extend({
+  parameters: z.record(z.any()).optional(), // Keeping parameters flexible for now
+  inputSchema: z.record(z.any()).optional(), // Keeping inputSchema flexible
+});
+
+// Prompt specific schema, extending base
+export const PromptSchema = BaseCapabilitySchema.extend({
+  template: z.string(),
   arguments: z.array(z.object({
     name: z.string(),
     description: z.string().optional(),
-    required: z.boolean().optional()
+    required: z.boolean().optional(),
   })).optional(),
-  source: z.string()
 });
 
+// Resource specific schema, extending base
+export const ResourceSchema = BaseCapabilitySchema.extend({
+  uri: z.string(),
+  mimeType: z.string().optional(),
+  // Assuming text/blob are not stored directly in registry, maybe just URI/metadata
+});
+
+// Infer TypeScript types from Zod schemas
 export type Tool = z.infer<typeof ToolSchema>;
 export type Prompt = z.infer<typeof PromptSchema>;
+export type Resource = z.infer<typeof ResourceSchema>;
 
-export interface Capability {
-  tools: Map<string, Tool>;
-  prompts: Map<string, Prompt>;
-} 
+// Interface removed as types are inferred now
+// export interface Capability {
+//   tools: Map<string, Tool>;
+//   prompts: Map<string, Prompt>;
+// } 

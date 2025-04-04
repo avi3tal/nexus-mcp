@@ -4,7 +4,7 @@ import { CapabilityError } from './errors.js';
 import { JSONRPCMessage, JSONRPCResponse } from '@modelcontextprotocol/sdk/types.js';
 import { Transport } from '../transport/Transport.js';
 import { SSETransport } from '../transport/SSETransport.js';
-import { Tool, Prompt } from './types.js'; // Import adapted types
+import { Tool, Prompt, Resource } from './types.js'; // Add Resource type import
 
 export class CapabilityDiscoverer {
   constructor(
@@ -44,9 +44,12 @@ export class CapabilityDiscoverer {
       console.log(`CapabilityDiscoverer: Discovering prompts for server: ${serverId}`);
       await this.discoverPrompts(transport, serverId);
       
+      console.log(`CapabilityDiscoverer: Discovering resources for server: ${serverId}`);
+      await this.discoverResources(transport, serverId);
+      
       console.log(`CapabilityDiscoverer: Capability discovery completed for server: ${serverId}`);
     } catch (error) {
-      console.error(`CapabilityDiscoverer: Capability discovery failed during tool/prompt fetching for server: ${serverId}`, error);
+      console.error(`CapabilityDiscoverer: Capability discovery failed during fetching for server: ${serverId}`, error);
       if (error instanceof CapabilityError) {
         throw error;
       }
@@ -129,6 +132,46 @@ export class CapabilityDiscoverer {
     } catch (error) {
         console.error(`CapabilityDiscoverer: Failed to discover prompts for server ${serverId}:`, error);
         throw CapabilityError.promptsDiscoveryFailed(serverId, error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+  
+  private async discoverResources(transport: Transport, serverId: string): Promise<void> {
+    console.log(`CapabilityDiscoverer: Sending resources/list request to server: ${serverId}`);
+    const resourcesMessage: JSONRPCMessage = {
+      jsonrpc: '2.0',
+      id: `resources-list-${Date.now()}`, 
+      method: 'resources/list',
+      params: {}
+    };
+
+    try {
+      const response = await this.manualRequestResponse(transport, resourcesMessage as JSONRPCMessage & { id: string });
+      console.log(`CapabilityDiscoverer: Received resources/list response from server: ${serverId}`, response);
+
+      if (!response || typeof response.result !== 'object' || response.result === null || !Array.isArray((response.result as any).resources)) {
+        console.error(`CapabilityDiscoverer: Invalid resources/list response structure for server ${serverId}:`, response);
+        throw new Error('Invalid response structure for resources/list');
+      }
+      
+      const resources = (response.result as any).resources;
+      for (const resourceData of resources) {
+        console.log(`CapabilityDiscoverer: Registering resource data from server: ${serverId}`, resourceData);
+        
+        // Map resource data to Resource type 
+        const resourceToRegister: Resource = {
+          name: resourceData.name || resourceData.uri, // Use uri as name fallback
+          uri: resourceData.uri,
+          mimeType: resourceData.mimeType,
+          description: resourceData.description,
+          source: serverId
+        };
+        
+        this.registry.registerResource(resourceToRegister);
+      }
+    } catch (error) {
+      // Skip resource discovery errors - consider them optional
+      console.warn(`CapabilityDiscoverer: Failed to discover resources for server ${serverId}, continuing:`, error);
+      // Don't throw - resources are optional
     }
   }
   
