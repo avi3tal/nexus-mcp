@@ -315,7 +315,7 @@ export function ResourceExplorer({ selectedServer, selectedResource, onSelectRes
                     <div key={vmcp.id} className="border p-3 rounded-md">
                       <h3 className="font-medium text-lg">{vmcp.name}</h3>
                       <p className="text-sm text-muted-foreground mt-1">
-                        Uses: {vmcp.uses.join(', ')}
+                        Uses: {vmcp.uses?.join(', ') || 'No resources'}
                       </p>
                     </div>
                   ))}

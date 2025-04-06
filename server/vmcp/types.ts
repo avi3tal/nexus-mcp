@@ -14,6 +14,11 @@ export type VMCPAggregationRule =
     | { type: 'include_prompts'; promptNames: string[] };
     // Can add exclude rules or more complex combinations later
 
+export interface CapabilityMapping {
+    serverId: string;
+    toolName: string;
+}
+
 export interface VMCPDefinition {
     id: string; // Unique ID assigned by the manager
     name: string; // User-friendly name

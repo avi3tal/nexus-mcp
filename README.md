@@ -154,4 +154,97 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 - [Model Context Protocol](https://modelcontextprotocol.io/) for the protocol specification
 - [Express.js](https://expressjs.com/) for the web framework
-- [React](https://reactjs.org/) for the client UI framework 
+- [React](https://reactjs.org/) for the client UI framework
+
+# Nexus MCP
+
+A Model Context Protocol (MCP) server implementation with virtual MCP (vMCP) capabilities.
+
+## Setup
+
+1. Install dependencies:
+   ```
+   npm install
+   ```
+
+2. Build the project:
+   ```
+   npm run build
+   ```
+
+3. Start the server:
+   ```
+   npm start
+   ```
+
+## Adding MCP Servers
+
+To add an MCP server to the configuration, send a POST request to `/api/mcp-servers` with the following JSON body:
+
+```json
+{
+  "name": "Local Server",
+  "url": "http://localhost:3000/sse",
+  "transport": "sse",
+  "id": "local"
+}
+```
+
+Note that the `id` field is required and must be unique. The system will validate that no server with the same ID, name, or URL already exists.
+
+## Creating a vMCP
+
+To create a vMCP, send a POST request to `/api/vmcp-servers` with the following JSON body:
+
+```json
+{
+  "name": "my-vmcp",
+  "port": 3002,
+  "sourceServerIds": ["local"],
+  "aggregationRules": [
+    {
+      "type": "union",
+      "capabilityType": "tools"
+    }
+  ]
+}
+```
+
+The `sourceServerIds` field must contain the IDs of MCP servers that have been added to the configuration.
+
+## Adding Additional MCP Servers
+
+To add another MCP server to the configuration, send a POST request to `/api/mcp-servers` with the following JSON body:
+
+```json
+{
+  "name": "Another Server",
+  "url": "http://localhost:3001/sse",
+  "transport": "sse",
+  "id": "another-server"
+}
+```
+
+Then you can create a vMCP that uses both servers:
+
+```json
+{
+  "name": "vmcp2",
+  "port": 3003,
+  "sourceServerIds": ["local", "another-server"],
+  "aggregationRules": [
+    {
+      "type": "union",
+      "capabilityType": "tools"
+    }
+  ]
+}
+```
+
+## API Documentation
+
+The API documentation is available at `/api-docs` when the server is running.
+
+## Architecture
+
+For more information about the architecture, see the documentation in the `Docs` directory. 

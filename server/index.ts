@@ -83,8 +83,9 @@ async function main() {
           'Accept': 'text/event-stream', 'Connection': 'keep-alive'
         }, { maxRetries: 3, retryDelay: 1000, timeout: 30000 });
         
-        transportManager.addTransport(server.name, transport);
-        await transportManager.connect(server.name);
+        const serverId = server.id || server.name;
+        transportManager.addTransport(serverId, transport);
+        await transportManager.connect(serverId);
         console.log(`Background: Connected ${server.name}. Discovering...`);
 
         transport.onerror = (error: Error) => { 
@@ -98,8 +99,8 @@ async function main() {
           configManager.updateConfig({ ...cfg, mcpServers: cfg.mcpServers.map(s => s.name === server.name ? { ...s, status: 'offline' as const, lastSeen: new Date().toISOString() } : s) });
         };
 
-        await discoverer.discoverCapabilities(server.name);
-        console.log(`Background: Capabilities discovered for ${server.name}.`);
+        await discoverer.discoverCapabilities(serverId);
+        console.log(`Background: Discovered capabilities for ${server.name}`);
         
         // Update status in config
         const cfg = configManager.getConfig();

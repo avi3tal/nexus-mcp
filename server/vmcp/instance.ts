@@ -2,35 +2,20 @@ import { Server } from '@modelcontextprotocol/sdk/server';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import * as http from 'http';
 import * as url from 'url';
-import { VMCPDefinition } from './types.js';
+import { VMCPDefinition, CapabilityMapping } from './types.js';
 import { TransportManager } from '../transport/manager.js';
 import { SSETransport } from '../transport/SSETransport.js';
 import type { JSONRPCMessage, JSONRPCResponse, JSONRPCRequest } from '@modelcontextprotocol/sdk/types.js';
-import { z } from 'zod'; // Assuming zod is available for schema definition
+import { z } from 'zod';
+import { TransportError, TransportErrorCode } from '../transport/TransportError.js';
+import { CapabilityError, CapabilityErrorCode } from '../capabilities/errors.js';
+import type { Tool as McpTool, Prompt as McpPrompt, Resource as McpResource } from '../capabilities/types.js';
+import { VMCPAggregationRule } from './types.js';
 
 // Define types manually based on protocol spec if not exported
-
-// Basic Tool structure
-interface Tool {
-  name: string;
-  description?: string;
-  inputSchema?: Record<string, any>; // Simplified - use JSONSchema if needed
-}
-
-// Basic Prompt structure
-interface Prompt {
-  name: string;
-  description?: string;
-  arguments?: any[]; // Simplified
-}
-
-// Basic Resource structure
-interface Resource {
-  uri: string;
-  name?: string;
-  mimeType?: string;
-  // ... other potential fields
-}
+interface Tool extends McpTool {}
+interface Prompt extends McpPrompt {}
+interface Resource extends McpResource {}
 
 // Basic Error structure (adapt ErrorCode values if known)
 enum ErrorCode {
@@ -39,7 +24,6 @@ enum ErrorCode {
   MethodNotFound = -32601,
   InvalidParams = -32602,
   InternalError = -32603,
-  // Add custom codes if needed, e.g., ServerError = -32000
 }
 
 class McpError extends Error {
@@ -64,7 +48,7 @@ const BaseRequestSchema = z.object({
 
 const ListToolsRequestSchema = BaseRequestSchema.extend({
     method: z.literal('tools/list'),
-    params: z.undefined().optional() // No params expected for list
+    params: z.any().optional() // Accept any params or none for list requests
 });
 
 const CallToolRequestSchema = BaseRequestSchema.extend({
@@ -77,7 +61,7 @@ const CallToolRequestSchema = BaseRequestSchema.extend({
 
 const ListPromptsRequestSchema = BaseRequestSchema.extend({
     method: z.literal('prompts/list'),
-     params: z.undefined().optional()
+    params: z.any().optional() // Accept any params or none for list requests
 });
 
 const GetPromptRequestSchema = BaseRequestSchema.extend({
@@ -90,7 +74,7 @@ const GetPromptRequestSchema = BaseRequestSchema.extend({
 
 const ListResourcesRequestSchema = BaseRequestSchema.extend({
     method: z.literal('resources/list'),
-     params: z.undefined().optional()
+    params: z.any().optional() // Accept any params or none for list requests
 });
 
 const GetResourceRequestSchema = BaseRequestSchema.extend({
@@ -100,14 +84,25 @@ const GetResourceRequestSchema = BaseRequestSchema.extend({
     })
 });
 
+interface CapabilityInfo {
+    serverId: string;
+    toolName: string;
+}
+
+interface ServerCapabilities {
+    tools: Tool[];
+    prompts: Prompt[];
+    resources: Resource[];
+}
+
 export class VMCPInstance {
     private mcpServer: Server | null = null;
     private httpServer: http.Server | null = null;
     private activeClientTransports: Map<string, SSEServerTransport> = new Map();
+    private capabilityMap: Map<string, CapabilityInfo> = new Map();
     private aggregatedTools: Tool[] = [];
     private aggregatedPrompts: Prompt[] = [];
     private aggregatedResources: Resource[] = [];
-    private capabilityMap: Map<string, string> = new Map(); 
 
     constructor(
         public readonly definition: VMCPDefinition,
@@ -125,19 +120,21 @@ export class VMCPInstance {
         const resource = this.aggregatedResources.find(r => r.uri === uri);
         if (!resource) return null;
 
-        const sourceServerId = this.capabilityMap.get(uri);
-        if (!sourceServerId) return null;
+        const mapKey = `${this.definition.id}:${uri}`;
+        const capabilityInfo = this.capabilityMap.get(mapKey);
+        if (!capabilityInfo) return null;
 
         try {
-            const response = await this.transportManager.request(sourceServerId, {
+            const message: JSONRPCMessage & { id: string } = {
                 jsonrpc: '2.0',
                 id: `vmcp-${this.definition.id}-resource-${Date.now()}`,
                 method: 'resources/get',
                 params: { uri }
-            });
+            };
+            const response = await this.transportManager.request(capabilityInfo.serverId, message);
             return response.result;
         } catch (error) {
-            console.error(`Error fetching resource ${uri} from ${sourceServerId}:`, error);
+            console.error(`Error fetching resource ${uri} from ${capabilityInfo.serverId}:`, error);
             return null;
         }
     }
@@ -149,21 +146,23 @@ export class VMCPInstance {
 
     async callTool(name: string, args: any): Promise<any> {
         await this.aggregateCapabilities();
-        const sourceServerId = this.capabilityMap.get(name);
-        if (!sourceServerId) {
-            throw new Error(`Tool ${name} not found`);
+        const mapKey = `${this.definition.id}:${name}`;
+        const capabilityInfo = this.capabilityMap.get(mapKey);
+        if (!capabilityInfo) {
+            throw new CapabilityError(CapabilityErrorCode.TOOL_NOT_FOUND, `Tool ${name} not found in vMCP ${this.definition.id}`);
         }
 
         try {
-            const response = await this.transportManager.request(sourceServerId, {
+            const message: JSONRPCMessage & { id: string } = {
                 jsonrpc: '2.0',
                 id: `vmcp-${this.definition.id}-tool-${Date.now()}`,
                 method: 'tools/call',
-                params: { name, arguments: args }
-            });
+                params: { name: capabilityInfo.toolName, arguments: args }
+            };
+            const response = await this.transportManager.request(capabilityInfo.serverId, message);
             return response.result;
         } catch (error) {
-            console.error(`Error calling tool ${name} on ${sourceServerId}:`, error);
+            console.error(`Error calling tool ${name} on ${capabilityInfo.serverId}:`, error);
             throw error;
         }
     }
@@ -178,19 +177,21 @@ export class VMCPInstance {
         const prompt = this.aggregatedPrompts.find(p => p.name === name);
         if (!prompt) return null;
 
-        const sourceServerId = this.capabilityMap.get(name);
-        if (!sourceServerId) return null;
+        const mapKey = `${this.definition.id}:${name}`;
+        const capabilityInfo = this.capabilityMap.get(mapKey);
+        if (!capabilityInfo) return null;
 
         try {
-            const response = await this.transportManager.request(sourceServerId, {
+            const message: JSONRPCMessage & { id: string } = {
                 jsonrpc: '2.0',
                 id: `vmcp-${this.definition.id}-prompt-${Date.now()}`,
                 method: 'prompts/get',
-                params: { name }
-            });
+                params: { name: capabilityInfo.toolName }
+            };
+            const response = await this.transportManager.request(capabilityInfo.serverId, message);
             return response.result;
         } catch (error) {
-            console.error(`Error fetching prompt ${name} from ${sourceServerId}:`, error);
+            console.error(`Error fetching prompt ${name} from ${capabilityInfo.serverId}:`, error);
             return null;
         }
     }
@@ -279,159 +280,48 @@ export class VMCPInstance {
         this.aggregatedResources = [];
         this.capabilityMap.clear();
 
-        // Extract rules
-        const includeToolsRule = this.definition.aggregationRules.find(r => r.type === 'include_tools') as { type: 'include_tools', toolNames: string[] } | undefined;
-        const includePromptsRule = this.definition.aggregationRules.find(r => r.type === 'include_prompts') as { type: 'include_prompts', promptNames: string[] } | undefined;
-        const includeResourcesRule = this.definition.aggregationRules.find(r => r.type === 'include_resources') as { type: 'include_resources', resourceUris: string[] } | undefined;
-        const aggregateAllRule = this.definition.aggregationRules.find(r => r.type === 'aggregate_all') as { type: 'aggregate_all' } | undefined;
-
-        console.log(`[VMCP ${this.definition.id}] Aggregation Rules:`, {
-            includeToolsRule,
-            includePromptsRule,
-            includeResourcesRule,
-            aggregateAllRule
-        });
-
-        // If we have an aggregate_all rule, we should fetch all capabilities
-        const shouldAggregateAll = !!aggregateAllRule;
-        console.log(`[VMCP ${this.definition.id}] Should aggregate all: ${shouldAggregateAll}`);
-        
-        if (this.definition.sourceServerIds.length === 0) {
-            console.error(`[VMCP ${this.definition.id}] No source server IDs provided!`);
-            return;
-        }
-
+        // Process each source server
         for (const serverId of this.definition.sourceServerIds) {
-            console.log(`[VMCP ${this.definition.id}] Processing source server: ${serverId}`);
-            
             try {
-                // Ensure transport is connected
-                const transport = this.transportManager.getTransport(serverId);
-                if (!transport) {
-                    throw new Error(`No transport found for server ${serverId}`);
-                }
-                if (!(transport as SSETransport).isTransportConnected) {
-                    console.log(`[VMCP ${this.definition.id}] Transport for ${serverId} not connected, attempting to connect...`);
-                    await transport.start();
-                }
-
-                // Fetch Tools
-                if (shouldAggregateAll || includeToolsRule) {
-                    console.log(`[VMCP ${this.definition.id}] Fetching tools from ${serverId}...`);
-                    const toolsResponse = await this.transportManager.request(serverId, { 
-                        jsonrpc: '2.0', 
-                        id: `vmcp-${this.definition.id}-tools-${Date.now()}`,
-                        method: 'tools/list' 
-                    }) as JSONRPCResponse;
-                    
-                    console.log(`[VMCP ${this.definition.id}] Tools response from ${serverId}:`, JSON.stringify(toolsResponse, null, 2));
-                    
-                    if (toolsResponse?.result?.tools) {
-                        const sourceTools = toolsResponse.result.tools as Tool[];
-                        console.log(`[VMCP ${this.definition.id}] Found ${sourceTools.length} tools from ${serverId}`);
-                 
-                        let toolsToAdd: Tool[] = [];
-                        if (shouldAggregateAll) {
-                            toolsToAdd = sourceTools;
-                        } else if (includeToolsRule) {
-                            toolsToAdd = sourceTools.filter(tool => includeToolsRule.toolNames.includes(tool.name));
-                            console.log(`[VMCP ${this.definition.id}] Filtered to ${toolsToAdd.length} tools based on selection`);
-                        }
-                        
-                        toolsToAdd.forEach(tool => {
-                            if (!this.capabilityMap.has(tool.name)) {
-                                this.aggregatedTools.push(tool);
-                                this.capabilityMap.set(tool.name, serverId);
-                                console.log(`[VMCP ${this.definition.id}] Added tool: ${tool.name} from ${serverId}`);
-                            } else {
-                                console.warn(`[VMCP ${this.definition.id}] Duplicate tool name '${tool.name}' from ${serverId} ignored.`);
+                // Get capabilities from source server
+                const capabilities = await this.fetchCapabilities(serverId);
+                
+                // Apply aggregation rules
+                for (const rule of this.definition.aggregationRules) {
+                    switch (rule.type) {
+                        case 'aggregate_all':
+                            // Add all tools, prompts, and resources
+                            this.aggregateTools(serverId, capabilities.tools);
+                            this.aggregatePrompts(serverId, capabilities.prompts);
+                            this.aggregateResources(serverId, capabilities.resources);
+                            break;
+                        case 'include_tools':
+                            // Add only specified tools
+                            if (rule.toolNames) {
+                                const filteredTools = capabilities.tools.filter(tool => rule.toolNames.includes(tool.name));
+                                this.aggregateTools(serverId, filteredTools);
                             }
-                        });
-                    } else {
-                        console.log(`[VMCP ${this.definition.id}] No tools found from ${serverId}`);
+                            break;
+                        case 'include_prompts':
+                            // Add only specified prompts
+                            if (rule.promptNames) {
+                                const filteredPrompts = capabilities.prompts.filter(prompt => rule.promptNames.includes(prompt.name));
+                                this.aggregatePrompts(serverId, filteredPrompts);
+                            }
+                            break;
+                        case 'include_resources':
+                            // Add only specified resources
+                            if (rule.resourceUris) {
+                                const filteredResources = capabilities.resources.filter(resource => rule.resourceUris.includes(resource.uri));
+                                this.aggregateResources(serverId, filteredResources);
+                            }
+                            break;
                     }
                 }
-
-                // Fetch Prompts
-                if (shouldAggregateAll || includePromptsRule) {
-                    console.log(`[VMCP ${this.definition.id}] Fetching prompts from ${serverId}...`);
-                    const promptsResponse = await this.transportManager.request(serverId, { 
-                        jsonrpc: '2.0', 
-                        id: `vmcp-${this.definition.id}-prompts-${Date.now()}`, 
-                        method: 'prompts/list' 
-                    }) as JSONRPCResponse;
-                    
-                    console.log(`[VMCP ${this.definition.id}] Prompts response from ${serverId}:`, JSON.stringify(promptsResponse, null, 2));
-                    
-                    if (promptsResponse?.result?.prompts) {
-                        const sourcePrompts = promptsResponse.result.prompts as Prompt[];
-                        console.log(`[VMCP ${this.definition.id}] Found ${sourcePrompts.length} prompts from ${serverId}`);
-                        
-                        let promptsToAdd: Prompt[] = [];
-                        if (shouldAggregateAll) {
-                            promptsToAdd = sourcePrompts;
-                        } else if (includePromptsRule) {
-                            promptsToAdd = sourcePrompts.filter(prompt => includePromptsRule.promptNames.includes(prompt.name));
-                            console.log(`[VMCP ${this.definition.id}] Filtered to ${promptsToAdd.length} prompts based on selection`);
-                        }
-                        
-                        promptsToAdd.forEach(prompt => {
-                            if (!this.capabilityMap.has(prompt.name)) {
-                                this.aggregatedPrompts.push(prompt);
-                                this.capabilityMap.set(prompt.name, serverId);
-                                console.log(`[VMCP ${this.definition.id}] Added prompt: ${prompt.name} from ${serverId}`);
-                            } else {
-                                console.warn(`[VMCP ${this.definition.id}] Duplicate prompt name '${prompt.name}' from ${serverId} ignored.`);
-                            }
-                        });
-                    } else {
-                        console.log(`[VMCP ${this.definition.id}] No prompts found from ${serverId}`);
-                    }
-                }
-
-                // Fetch Resources
-                if (shouldAggregateAll || includeResourcesRule) {
-                    console.log(`[VMCP ${this.definition.id}] Fetching resources from ${serverId}...`);
-                    const resourcesResponse = await this.transportManager.request(serverId, { 
-                        jsonrpc: '2.0', 
-                        id: `vmcp-${this.definition.id}-resources-${Date.now()}`, 
-                        method: 'resources/list' 
-                    }) as JSONRPCResponse;
-                    
-                    console.log(`[VMCP ${this.definition.id}] Resources response from ${serverId}:`, JSON.stringify(resourcesResponse, null, 2));
-                    
-                    if (resourcesResponse?.result?.resources) {
-                        const sourceResources = resourcesResponse.result.resources as Resource[];
-                        console.log(`[VMCP ${this.definition.id}] Found ${sourceResources.length} resources from ${serverId}`);
-                        
-                        let resourcesToAdd: Resource[] = [];
-                        if (shouldAggregateAll) {
-                            resourcesToAdd = sourceResources;
-                        } else if (includeResourcesRule) {
-                            resourcesToAdd = sourceResources.filter(resource => includeResourcesRule.resourceUris.includes(resource.uri));
-                            console.log(`[VMCP ${this.definition.id}] Filtered to ${resourcesToAdd.length} resources based on selection`);
-                        }
-                        
-                        resourcesToAdd.forEach(resource => {
-                            if (!this.capabilityMap.has(resource.uri)) {
-                                this.aggregatedResources.push(resource);
-                                this.capabilityMap.set(resource.uri, serverId);
-                                console.log(`[VMCP ${this.definition.id}] Added resource: ${resource.uri} from ${serverId}`);
-                            } else {
-                                console.warn(`[VMCP ${this.definition.id}] Duplicate resource URI '${resource.uri}' from ${serverId} ignored.`);
-                            }
-                        });
-                    } else {
-                        console.log(`[VMCP ${this.definition.id}] No resources found from ${serverId}`);
-                    }
-                }
-            } catch (error) { 
-                console.error(`[VMCP ${this.definition.id}] Error fetching capabilities from ${serverId}:`, error);
-                console.error(`[VMCP ${this.definition.id}] Error details:`, {
-                    message: error instanceof Error ? error.message : String(error),
-                    stack: error instanceof Error ? error.stack : undefined
-                });
-                // Don't throw here, continue with other servers
+            } catch (error) {
+                console.error(`Error aggregating capabilities from server ${serverId}:`, error);
+                // Consider how to handle partial failures (maybe set a degraded state?)
+                throw error;
             }
         }
 
@@ -445,6 +335,30 @@ export class VMCPInstance {
         // Throw an error if no capabilities were aggregated
         if (this.aggregatedTools.length === 0 && this.aggregatedPrompts.length === 0 && this.aggregatedResources.length === 0) {
             throw new Error('No capabilities were successfully aggregated from any source server.');
+        }
+    }
+
+    private aggregateTools(serverId: string, tools: Tool[]): void {
+        for (const tool of tools) {
+            const mapKey = `${this.definition.id}:${tool.name}`;
+            this.capabilityMap.set(mapKey, { serverId, toolName: tool.name });
+            this.aggregatedTools.push(tool);
+        }
+    }
+
+    private aggregatePrompts(serverId: string, prompts: Prompt[]): void {
+        for (const prompt of prompts) {
+            const mapKey = `${this.definition.id}:${prompt.name}`;
+            this.capabilityMap.set(mapKey, { serverId, toolName: prompt.name });
+            this.aggregatedPrompts.push(prompt);
+        }
+    }
+
+    private aggregateResources(serverId: string, resources: Resource[]): void {
+        for (const resource of resources) {
+            const mapKey = `${this.definition.id}:${resource.uri}`;
+            this.capabilityMap.set(mapKey, { serverId, toolName: resource.uri });
+            this.aggregatedResources.push(resource);
         }
     }
 
@@ -499,30 +413,43 @@ export class VMCPInstance {
     }
     
     private async proxyRequest(request: JSONRPCRequest, method: string, capabilityIdentifier: string): Promise<any> {
-        let targetServerId = this.capabilityMap.get(capabilityIdentifier);
+        const mapKey = `${this.definition.id}:${capabilityIdentifier}`;
+        const capabilityInfo = this.capabilityMap.get(mapKey);
 
-        if (!targetServerId && method === 'resources/get') {
-            const match = capabilityIdentifier.match(/^mcp:\/\/([^\/]+)/);
-            if (match && match[1] && this.definition.sourceServerIds.includes(match[1])) {
-                targetServerId = match[1];
+        if (!capabilityInfo) {
+            // Special handling for resource URIs
+            if (method === 'resources/get') {
+                const match = capabilityIdentifier.match(/^mcp:\/\/([^\/]+)/);
+                if (match && match[1] && this.definition.sourceServerIds.includes(match[1])) {
+                    const serverId = match[1];
+                    const message: JSONRPCMessage & { id: string } = {
+                        jsonrpc: '2.0',
+                        method: method,
+                        params: request.params,
+                        id: `vmcp-proxy-${request.id}-${Date.now()}`
+                    };
+                    return await this.transportManager.request(serverId, message);
+                }
             }
-        }
-        
-        if (!targetServerId) {
-            throw new McpError(ErrorCode.MethodNotFound, `Capability '${capabilityIdentifier}' could not be mapped to a source server`);
+            throw new CapabilityError(CapabilityErrorCode.RESOURCE_NOT_FOUND, `Capability '${capabilityIdentifier}' could not be mapped to a source server`);
         }
 
-        const proxyRequest: JSONRPCRequest = { 
+        const message: JSONRPCMessage & { id: string } = {
             jsonrpc: '2.0',
             method: method,
             params: request.params,
             id: `vmcp-proxy-${request.id}-${Date.now()}`
         };
         
-        const response = await this.transportManager.request(targetServerId, proxyRequest);
+        const response = await this.transportManager.request(capabilityInfo.serverId, message);
         
         if (response.error) {
-            throw new McpError(response.error.code, response.error.message, response.error.data);
+            throw new TransportError(
+                response.error.message,
+                TransportErrorCode.RPC_ERROR,
+                { serverId: capabilityInfo.serverId, error: response.error },
+                false
+            );
         }
         return response.result;
     }
@@ -639,5 +566,34 @@ export class VMCPInstance {
         console.log(`[VMCP ${this.definition.id}] Instance stopped successfully`);
     }
     
-    // Removed placeholder findSourceServerFor... methods as logic is now in handlers
+    private async fetchCapabilities(serverId: string): Promise<ServerCapabilities> {
+        const transport = this.transportManager.getTransport(serverId);
+        if (!transport) {
+            throw new Error(`No transport found for server ${serverId}`);
+        }
+
+        const toolsResponse = await this.transportManager.request(serverId, {
+            jsonrpc: '2.0',
+            id: `vmcp-${this.definition.id}-tools-${Date.now()}`,
+            method: 'tools/list'
+        }) as JSONRPCResponse;
+
+        const promptsResponse = await this.transportManager.request(serverId, {
+            jsonrpc: '2.0',
+            id: `vmcp-${this.definition.id}-prompts-${Date.now()}`,
+            method: 'prompts/list'
+        }) as JSONRPCResponse;
+
+        const resourcesResponse = await this.transportManager.request(serverId, {
+            jsonrpc: '2.0',
+            id: `vmcp-${this.definition.id}-resources-${Date.now()}`,
+            method: 'resources/list'
+        }) as JSONRPCResponse;
+
+        return {
+            tools: toolsResponse.result?.tools || [],
+            prompts: promptsResponse.result?.prompts || [],
+            resources: resourcesResponse.result?.resources || []
+        };
+    }
 } 

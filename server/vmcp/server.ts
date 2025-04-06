@@ -9,13 +9,12 @@ import express from 'express';
 import http from 'http';
 
 // Define request schemas based on MCP protocol
-const ListResourcesRequestSchema = { method: "list_resources" };
-const ReadResourceRequestSchema = { method: "read_resource" };
-const ListToolsRequestSchema = { method: "list_tools" };
-const CallToolRequestSchema = { method: "call_tool" };
-const ListPromptsRequestSchema = { method: "list_prompts" };
-const GetPromptRequestSchema = { method: "get_prompt" };
-const GetResourceRequestSchema = { method: "get_resource" };
+const ListResourcesRequestSchema = { method: "resources/list" };
+const GetResourceRequestSchema = { method: "resources/get" };
+const ListToolsRequestSchema = { method: "tools/list" };
+const CallToolRequestSchema = { method: "tools/call" };
+const ListPromptsRequestSchema = { method: "prompts/list" };
+const GetPromptRequestSchema = { method: "prompts/get" };
 
 // Define response types
 interface Resource {
@@ -79,7 +78,8 @@ export class VMCPServer {
   
   private setupResourceHandlers() {
     // List resources handler
-    this.server.setRequestHandler(ListResourcesRequestSchema, async () => {
+    this.server.setRequestHandler(ListResourcesRequestSchema, async (request: any) => {
+      // For list requests, we should ignore params completely
       const resources = await this.instance.listResources();
       return { resources };
     });
@@ -88,16 +88,14 @@ export class VMCPServer {
     this.server.setRequestHandler(GetResourceRequestSchema, async (request: any) => {
       const { uri } = request.params;
       const resource = await this.instance.getResource(uri);
-      if (!resource) {
-        throw new Error(`Resource ${uri} not found`);
-      }
       return resource;
     });
   }
   
   private setupToolHandlers() {
     // List tools handler
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => {
+    this.server.setRequestHandler(ListToolsRequestSchema, async (request: any) => {
+      // For list requests, we should ignore params completely
       const tools = await this.instance.listTools();
       return { tools };
     });
@@ -106,16 +104,14 @@ export class VMCPServer {
     this.server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
       const { name, arguments: args } = request.params;
       const result = await this.instance.callTool(name, args);
-      if (!result) {
-        throw new Error(`Tool ${name} not found`);
-      }
       return result;
     });
   }
   
   private setupPromptHandlers() {
     // List prompts handler
-    this.server.setRequestHandler(ListPromptsRequestSchema, async () => {
+    this.server.setRequestHandler(ListPromptsRequestSchema, async (request: any) => {
+      // For list requests, we should ignore params completely
       const prompts = await this.instance.listPrompts();
       return { prompts };
     });
@@ -124,9 +120,6 @@ export class VMCPServer {
     this.server.setRequestHandler(GetPromptRequestSchema, async (request: any) => {
       const { name } = request.params;
       const prompt = await this.instance.getPrompt(name);
-      if (!prompt) {
-        throw new Error(`Prompt ${name} not found`);
-      }
       return prompt;
     });
   }

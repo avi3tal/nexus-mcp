@@ -36,7 +36,7 @@ export const MCPServerConfigSchema = z.object({
   status: z.enum(['online', 'offline', 'error']).optional(),
   isDisabled: z.boolean().optional(),
   lastSeen: z.string().optional(),
-  id: z.string().optional()
+  id: z.string()
 });
 
 export const vMCPConfigSchema = z.object({

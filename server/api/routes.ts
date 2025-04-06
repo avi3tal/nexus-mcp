@@ -96,16 +96,33 @@ export function setupRoutes(app: express.Application): void {
    */
   router.post('/mcp-servers', async (req, res) => {
     try {
-      const serverConfig = req.body as MCPServerConfig;
+      const serverConfig = req.body;
+      
+      // Validate required fields
+      if (!serverConfig.name || !serverConfig.url || !serverConfig.transport || !serverConfig.id) {
+        return res.status(400).json({ error: 'Missing required fields: name, url, transport, id' });
+      }
+      
+      const registry = ServiceRegistry.getInstance();
       const configManager = registry.getConfigManager();
       const transportManager = registry.getTransportManager(); // No cast needed if logic is correct
       const discoverer = registry.getCapabilityDiscoverer();
       
       // Check for duplicates before doing anything else
       const currentConfig = configManager.getConfig();
-      const existingServer = currentConfig.mcpServers.find(s => s.name === serverConfig.name || s.url === serverConfig.url);
-      if (existingServer) {
-        return res.status(400).json({ error: `Server with name '${serverConfig.name}' or URL '${serverConfig.url}' already exists.` });
+      const existingServerById = currentConfig.mcpServers.find(s => s.id === serverConfig.id);
+      if (existingServerById) {
+        return res.status(400).json({ error: `Server with ID '${serverConfig.id}' already exists.` });
+      }
+      
+      const existingServerByName = currentConfig.mcpServers.find(s => s.name === serverConfig.name);
+      if (existingServerByName) {
+        return res.status(400).json({ error: `Server with name '${serverConfig.name}' already exists.` });
+      }
+      
+      const existingServerByUrl = currentConfig.mcpServers.find(s => s.url === serverConfig.url);
+      if (existingServerByUrl) {
+        return res.status(400).json({ error: `Server with URL '${serverConfig.url}' already exists.` });
       }
       
       // Try to set up transport, connect, and discover capabilities
@@ -122,10 +139,10 @@ export function setupRoutes(app: express.Application): void {
         });
 
         // 2. Add the transport to the manager
-        transportManager.addTransport(serverConfig.name, transport);
+        transportManager.addTransport(serverConfig.id, transport);
 
         // 3. Connect using the manager (this calls transport.start())
-        await transportManager.connect(serverConfig.name);
+        await transportManager.connect(serverConfig.id);
         console.log(`Transport connected for ${serverConfig.name}.`);
 
         // Attach handlers to the transport instance (we can still use the 'transport' variable)
@@ -133,19 +150,19 @@ export function setupRoutes(app: express.Application): void {
           console.error(`Transport error for ${serverConfig.name}:`, error);
           // Update status in config
           const latestConfig = configManager.getConfig();
-          const updated = latestConfig.mcpServers.map(s => s.name === serverConfig.name ? { ...s, status: 'error' as const } : s);
+          const updated = latestConfig.mcpServers.map(s => s.id === serverConfig.id ? { ...s, status: 'error' as const } : s);
           configManager.updateConfig({ ...latestConfig, mcpServers: updated });
         };
         transport.onclose = () => {
           console.log(`Transport closed for ${serverConfig.name}`);
           // Update status in config
           const latestConfig = configManager.getConfig();
-          const updated = latestConfig.mcpServers.map(s => s.name === serverConfig.name ? { ...s, status: 'offline' as const } : s);
+          const updated = latestConfig.mcpServers.map(s => s.id === serverConfig.id ? { ...s, status: 'offline' as const } : s);
           configManager.updateConfig({ ...latestConfig, mcpServers: updated });
         };
         
         console.log(`Discovering capabilities for ${serverConfig.name}...`);
-        await discoverer.discoverCapabilities(serverConfig.name);
+        await discoverer.discoverCapabilities(serverConfig.id);
         console.log(`Capabilities discovered for ${serverConfig.name}.`);
         
         // 4. Update the config with the new server ONLY after success
@@ -184,7 +201,7 @@ export function setupRoutes(app: express.Application): void {
       } catch (error) {
         console.error(`Failed to setup or discover for server ${serverConfig.name}:`, error);
         // Remove transport if setup failed
-        transportManager.removeTransport(serverConfig.name);
+        transportManager.removeTransport(serverConfig.id);
         
         // Don't add the server to config if setup failed
         res.status(500).json({ 
@@ -256,7 +273,6 @@ export function setupRoutes(app: express.Application): void {
    */
   router.post('/vmcp-servers', async (req, res) => {
     try {
-      // Extract params from request body
       const { name, port, sourceServerIds, aggregationRules } = req.body;
       
       console.log('[POST /vmcp-servers] Request payload:', {
@@ -266,7 +282,34 @@ export function setupRoutes(app: express.Application): void {
         aggregationRules
       });
       
-      // Basic validation
+      // Validate source servers
+      const configManager = registry.getConfigManager();
+      const config = configManager.getConfig();
+      
+      // Check if any of the source servers are vMCPs
+      const vmcpManager = registry.getVMCPManager();
+      for (const serverId of sourceServerIds) {
+        const vmcpDefinition = vmcpManager.getVMCP(serverId);
+        if (vmcpDefinition) {
+          return res.status(400).json({ 
+            error: 'Cannot use vMCP servers as source servers',
+            details: `Server ${serverId} is a vMCP and cannot be used as a source`
+          });
+        }
+      }
+      
+      // Continue with existing validation
+      const invalidServers = sourceServerIds.filter((id: string) => 
+        !config.mcpServers.some(s => s.id === id)
+      );
+      
+      if (invalidServers.length > 0) {
+        return res.status(400).json({ 
+          error: 'Invalid source server IDs',
+          details: `Source MCP servers not found: ${invalidServers.join(', ')}`
+        });
+      }
+
       if (!name || !port || !sourceServerIds || sourceServerIds.length === 0) {
         return res.status(400).json({ error: 'Missing required fields: name, port, sourceServerIds' });
       }

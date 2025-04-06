@@ -195,7 +195,9 @@ export class VMCPManager {
 
     private validateSourceServers(sourceServerIds: string[]): void {
         const currentConfig = this.configManager.getConfig();
-        const knownServerIds = new Set(currentConfig.mcpServers.map(s => s.name)); // Assuming name is the ID
+        const knownServerIds = new Set(currentConfig.mcpServers.map(s => s.id).filter(Boolean)); // Use id field and filter out undefined
+        
+        // Validate all source server IDs
         for (const sourceId of sourceServerIds) {
             if (!knownServerIds.has(sourceId)) {
                 throw new Error(`Source MCP server with ID '${sourceId}' not found in configuration.`);

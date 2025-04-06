@@ -30,11 +30,13 @@ export function App() {
     setVmcpUpdateCounter(prev => prev + 1);
   }, []);
 
-  const availableServersForVMCP: SimpleMCPServer[] = servers.map(s => ({
-    id: s.id,
-    name: s.name,
-    url: s.url
-  }));
+  const availableServersForVMCP: SimpleMCPServer[] = servers
+    .filter(s => !s.isVirtual) // Only include physical servers
+    .map(s => ({
+      id: s.id,
+      name: s.name,
+      url: s.url
+    }));
 
   return (
     <div className="flex h-screen bg-background">

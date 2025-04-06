@@ -31,7 +31,8 @@ async function addServer() {
     const serverConfig: MCPServerConfig = {
       name: 'test-server',
       url: 'http://localhost:3001/sse',
-      transport: 'sse'
+      transport: 'sse',
+      id: 'test-server'
     };
     
     // Update current configuration
@@ -46,7 +47,7 @@ async function addServer() {
     });
     
     // Register transport with the transport manager
-    transportManager.addTransport(serverConfig.name, transport);
+    transportManager.addTransport(serverConfig.id, transport);
     
     // Setup message handler
     transport.onmessage = (message) => {
@@ -64,11 +65,11 @@ async function addServer() {
     };
     
     console.log('Connecting to server...');
-    await transportManager.connect(serverConfig.name);
+    await transportManager.connect(serverConfig.id);
     console.log('Connected successfully');
     
     console.log('Discovering capabilities...');
-    const capabilities = await capabilityDiscoverer.discoverCapabilities(serverConfig.name);
+    const capabilities = await capabilityDiscoverer.discoverCapabilities(serverConfig.id);
     console.log('Capabilities discovered:', capabilities);
     
     // Cleanup

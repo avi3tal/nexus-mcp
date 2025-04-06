@@ -102,6 +102,7 @@ export function MCPServerGrid({ selectedServer, onSelectServer }: MCPServerGridP
         transport: 'http',
         isVirtual: false, // Physical servers added directly are not virtual
         isDisabled: false, // New servers start enabled
+        id: newServer.name, // Use the name as the ID if not provided
       };
       const response = await fetch('/api/mcp-servers', {
         method: 'POST',
