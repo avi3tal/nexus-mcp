@@ -138,8 +138,16 @@ export function MCPServerGrid({ selectedServer, onSelectServer }: MCPServerGridP
       // Toggle the disabled state
       const newState = !server.isDisabled;
       
+      // Determine endpoint based on server type (vMCP or regular MCP)
+      const isVirtualServer = server.isVirtual === true;
+      const endpoint = isVirtualServer 
+        ? `/api/vmcp-servers/${server.id}/connection`
+        : `/api/mcp-servers/${server.id}/connection`;
+      
+      console.log(`Using connection endpoint: ${endpoint}`);
+      
       // Call API to update server state
-      const response = await fetch(`/api/mcp-servers/${server.id}/connection`, {
+      const response = await fetch(endpoint, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ isDisabled: newState }),

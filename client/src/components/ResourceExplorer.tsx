@@ -6,7 +6,7 @@ import { Wrench, FileText, Copy, PlayIcon } from 'lucide-react';
 import { MCPServer, Resource } from '../types';
 import { ResourceDetails } from './ResourceDetails';
 import { ToolExecutor } from './ToolExecutor';
-import { Tool } from '@modelcontextprotocol/sdk';
+import { Tool, Resource as MCPResource } from '@modelcontextprotocol/sdk';
 
 interface ResourceExplorerProps {
   selectedServer: MCPServer | null;
@@ -16,26 +16,37 @@ interface ResourceExplorerProps {
 
 // Helper to convert MCP capabilities to the local Resource format
 const mapCapabilitiesToResources = (server: MCPServer): Resource[] => {
-  const tools = (server.tools || []).map(tool => ({ 
-    id: `${server.id}-tool-${tool.name}`,
+  // Ensure server.tools, prompts, resources are arrays
+  const safeTools = Array.isArray(server.tools) ? server.tools : [];
+  const safePrompts = Array.isArray(server.prompts) ? server.prompts : [];
+  const safeResources = Array.isArray(server.resources) ? server.resources : [];
+
+  const tools = safeTools.map(tool => ({
+    uri: `mcp-tool://${server.id}/${tool.name}`,
     name: tool.name,
-    type: 'tool' as const,
-    content: tool
+    type: 'tool',
+    content: JSON.stringify(tool)
   }));
-  const prompts = (server.prompts || []).map(prompt => ({ 
-    id: `${server.id}-prompt-${prompt.name}`, 
-    name: prompt.name, 
-    type: 'prompt' as const,
-    content: prompt
+  const prompts = safePrompts.map(prompt => ({
+    uri: `mcp-prompt://${server.id}/${prompt.name}`,
+    name: prompt.name,
+    type: 'prompt',
+    content: JSON.stringify(prompt)
   }));
-  const resources = (server.resources || []).map(res => ({ 
-    id: `${server.id}-resource-${res.uri}`, // Use URI for ID
-    name: res.uri, // Use URI as name for display
-    type: 'resource' as const,
-    content: res
+  // Use MCPResource type for safety
+  const resources = safeResources.map((res: MCPResource) => ({
+    uri: res.uri,
+    // Use optional chaining for name, falling back to URI
+    name: (res as any).name || res.uri, // Cast to any if name isn't in MCPResource type
+    type: 'resource',
+    content: JSON.stringify(res)
   }));
-  
-  return [...tools, ...prompts, ...resources];
+
+  return [
+      ...tools as Resource[], 
+      ...prompts as Resource[], 
+      ...resources as Resource[]
+  ];
 };
 
 export function ResourceExplorer({ selectedServer, selectedResource, onSelectResource }: ResourceExplorerProps) {
@@ -52,10 +63,20 @@ export function ResourceExplorer({ selectedServer, selectedResource, onSelectRes
       setError(null);
       try {
         console.log(`Fetching capabilities for server: ${serverId}`);
-        const response = await fetch(`/api/mcp-servers/${serverId}/capabilities`);
+        
+        // Determine endpoint based on server type (vMCP or regular MCP)
+        const isVirtualServer = selectedServer?.isVirtual === true;
+        const endpoint = isVirtualServer 
+          ? `/api/vmcp-servers/${serverId}/capabilities`
+          : `/api/mcp-servers/${serverId}/capabilities`;
+          
+        console.log(`Using endpoint: ${endpoint}`);
+        const response = await fetch(endpoint);
+        
         if (!response.ok) {
           throw new Error(`Failed to fetch capabilities: ${response.statusText}`);
         }
+        
         const capabilities = await response.json();
         console.log(`Received capabilities for ${serverId}:`, capabilities);
 
@@ -81,11 +102,20 @@ export function ResourceExplorer({ selectedServer, selectedResource, onSelectRes
     // Function to fetch vMCPs that depend on this server
     const fetchDependentVMCPs = async (serverId: string) => {
       try {
-        const response = await fetch(`/api/mcp-servers/${serverId}/dependents`);
+        // Determine endpoint based on server type (vMCP or regular MCP)
+        const isVirtualServer = selectedServer?.isVirtual === true;
+        const endpoint = isVirtualServer 
+          ? `/api/vmcp-servers/${serverId}/dependents`
+          : `/api/mcp-servers/${serverId}/dependents`;
+          
+        console.log(`Using dependents endpoint: ${endpoint}`);
+        const response = await fetch(endpoint);
+        
         if (!response.ok) {
           console.warn(`Could not fetch dependent vMCPs: ${response.statusText}`);
           return;
         }
+        
         const data = await response.json();
         setDependentVMCPs(data);
       } catch (err) {
@@ -131,9 +161,17 @@ export function ResourceExplorer({ selectedServer, selectedResource, onSelectRes
 
   // Handler for selecting a tool for execution
   const handleToolSelect = (resource: Resource | null) => {
-    if (resource && resource.type === 'tool') {
-      setSelectedTool(resource.content as Tool);
-      setActiveTab('tool-executor');
+    if (resource && resource.type === 'tool' && resource.content) {
+      try {
+        // Parse the JSON string content back into an object
+        const toolObject = JSON.parse(resource.content);
+        setSelectedTool(toolObject as Tool);
+        setActiveTab('tool-executor');
+      } catch (parseError) {
+        console.error("Failed to parse tool content:", parseError);
+        setSelectedTool(null);
+        onSelectResource(null); // Clear selection on error
+      }
     } else {
       setSelectedTool(null);
       onSelectResource(resource);
@@ -196,9 +234,9 @@ export function ResourceExplorer({ selectedServer, selectedResource, onSelectRes
                 <div className="space-y-2 pr-4">
                   {displayedResources.map((resource) => (
                     <Card 
-                      key={resource.id} 
-                      className={`cursor-pointer hover:bg-accent/50 transition-colors ${
-                        selectedResource?.id === resource.id ? 'border-primary' : ''
+                      key={resource.uri}
+                      className={`cursor-pointer hover:bg-accent/50 transition-colors ${ 
+                        selectedResource?.uri === resource.uri ? 'border-primary' : ''
                       }`}
                       onClick={() => 
                         activeTab === 'tools' 
@@ -247,7 +285,7 @@ export function ResourceExplorer({ selectedServer, selectedResource, onSelectRes
                   </span>
                 </div>
                 <div>
-                  <span className="font-medium">Last Seen:</span> {new Date(selectedServer.lastSeen).toLocaleString()}
+                  <span className="font-medium">Last Seen:</span> {selectedServer.lastSeen ? new Date(selectedServer.lastSeen).toLocaleString() : 'N/A'}
                 </div>
                 <div>
                   <span className="font-medium">Transport:</span> {selectedServer.transport}

@@ -3,6 +3,7 @@ import { TransportManager } from '../transport/manager.js';
 import { CapabilityRegistry } from '../capabilities/registry.js';
 import { CapabilityDiscoverer } from '../capabilities/discoverer.js';
 import { CapabilityRefreshManager } from '../capabilities/refresh.js';
+import { VMCPManager } from '../vmcp/manager.js';
 
 export class ServiceRegistry {
   private static instance: ServiceRegistry;
@@ -12,6 +13,7 @@ export class ServiceRegistry {
   private capabilityRegistry: CapabilityRegistry;
   private capabilityDiscoverer: CapabilityDiscoverer;
   private capabilityRefreshManager: CapabilityRefreshManager;
+  private vmcpManager: VMCPManager;
 
   private constructor() {
     this.services = new Map();
@@ -25,6 +27,11 @@ export class ServiceRegistry {
     this.capabilityRefreshManager = new CapabilityRefreshManager(
       this.capabilityDiscoverer
     );
+    this.vmcpManager = new VMCPManager(this.transportManager, this.configManager);
+    this.services.set('vmcpManager', this.vmcpManager);
+
+    // Maybe start refresh manager after other services are ready?
+    // this.capabilityRefreshManager.start(); 
   }
 
   static getInstance(): ServiceRegistry {
@@ -64,5 +71,9 @@ export class ServiceRegistry {
 
   getCapabilityRefreshManager(): CapabilityRefreshManager {
     return this.capabilityRefreshManager;
+  }
+
+  getVMCPManager(): VMCPManager {
+    return this.vmcpManager;
   }
 } 

@@ -5,21 +5,31 @@ export interface MCPServer {
   name: string;
   url: string;
   transport: string;
-  status: 'online' | 'offline' | 'error';
-  lastSeen: string;
+  status?: 'online' | 'offline' | 'error';
+  lastSeen?: string;
+  isDisabled?: boolean;
+  capabilities?: {
+    tools?: any; // Define more specific types if needed
+    prompts?: any;
+    resources?: any;
+  };
   tools: Tool[];
   prompts: Prompt[];
   resources: MCPResource[];
   isVirtual?: boolean;
-  isDisabled?: boolean;
+}
+
+export interface SimpleMCPServer {
+  id: string;
+  name: string;
+  url: string;
 }
 
 export interface Resource {
-  id: string;
+  uri: string;
   name: string;
-  type: 'tool' | 'prompt' | 'resource';
-  content: any;
-  metadata?: ResourceMetadata;
+  type: string;
+  content?: string;
 }
 
 export interface ResourceMetadata {
@@ -39,4 +49,13 @@ export interface VMCP {
   resources: Resource[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface VMCPInstance {
+  id: string;
+  name: string;
+  port: number;
+  sourceServerIds: string[];
+  status: 'stopped' | 'starting' | 'running' | 'error' | 'partially_degraded';
+  // Add other relevant fields displayed in the UI
 } 

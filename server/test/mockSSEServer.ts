@@ -24,7 +24,8 @@ app.get('/sse', (req, res) => {
   // Send initial connection message
   const message: JSONRPCMessage = {
     jsonrpc: '2.0',
-    method: 'connected',
+    id: `status-${Date.now()}`,
+    method: 'status',
     params: { status: 'connected' }
   };
   res.write(`data: ${JSON.stringify(message)}\n\n`);
@@ -37,7 +38,8 @@ app.post('/test', express.json(), (req, res) => {
   // Echo back to all clients
   const response: JSONRPCMessage = {
     jsonrpc: '2.0',
-    method: 'echo',
+    id: `response-${Date.now()}`,
+    method: 'response',
     params: message.params ?? {}
   };
 
@@ -55,7 +57,7 @@ app.post('/request', express.json(), (req, res) => {
   // Send response
   const response = {
     jsonrpc: '2.0',
-    id: message.id,
+    id: `result-${Date.now()}`,
     result: { echo: message.params ?? {} }
   };
 
@@ -69,7 +71,8 @@ app.post('/sse', express.json(), (req, res) => {
   // Echo back to all clients
   const response: JSONRPCMessage = {
     jsonrpc: '2.0',
-    method: 'echo',
+    id: `result-${Date.now()}`,
+    method: 'result',
     params: message.params ?? {}
   };
 

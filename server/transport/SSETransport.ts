@@ -197,7 +197,14 @@ export class SSETransport implements Transport {
     try {
       // Send the message exactly as received, DO NOT add connectionId
       console.log("SSETransport: Sending message (no connectionId added):", message);
-      await this.transport.send(message);
+      // Cast to the expected SDK type
+      const sdkMessage = {
+        jsonrpc: message.jsonrpc,
+        method: message.method || "notification", // Ensure method is never undefined
+        id: message.id,
+        params: message.params
+      };
+      await this.transport.send(sdkMessage);
       console.log("SSETransport: Message sent successfully.");
     } catch (error) {
       console.error("SSETransport: Error during sendInternal()", error);
